@@ -687,15 +687,30 @@ impl<PdC: PdClient> Client<PdC> {
         previous_value: impl Into<Option<Value>>,
         new_value: impl Into<Value>,
     ) -> Result<(Option<Value>, bool)> {
+        self.compare_and_swap_with_ttl(key, previous_value, new_value, 0)
+            .await
+    }
+
+    /// Like [`compare_and_swap`](Self::compare_and_swap), but sets the TTL in seconds
+    /// on a successful swap. A TTL of zero means the key will not expire.
+    /// A failed comparison leaves both the value and its TTL unchanged.
+    pub async fn compare_and_swap_with_ttl(
+        &self,
+        key: impl Into<Key>,
+        previous_value: impl Into<Option<Value>>,
+        new_value: impl Into<Value>,
+        ttl_secs: u64,
+    ) -> Result<(Option<Value>, bool)> {
         debug!("invoking raw compare_and_swap request");
         self.assert_atomic()?;
         let key = key.into().encode_keyspace(self.keyspace, KeyMode::Raw);
-        let req = new_cas_request(
+        let mut req = new_cas_request(
             key,
             new_value.into(),
             previous_value.into(),
             self.cf.clone(),
         );
+        req.ttl = ttl_secs;
         let plan = crate::request::PlanBuilder::new(self.rpc.clone(), self.keyspace, req)
             .retry_multi_region(self.backoff.clone())
             .merge(CollectSingle)
